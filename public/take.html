@@ -1,0 +1,119 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Take Quiz</title>
+<style>
+:root{--bg:#faf8f5;--card:#fff;--text:#1f1d1a;--muted:#6b665e;--line:#e4dfd6;--accent:#c4562b;--accent-t:#fff;--ok:#2d7a4f;--bad:#c0392b}
+@media (prefers-color-scheme:dark){:root{--bg:#171614;--card:#222120;--text:#f1eee8;--muted:#a39d92;--line:#37352f;--accent:#e07a4f;--accent-t:#1a1a1a;--ok:#5ec28a;--bad:#e8695a}}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--text);font:16px/1.5 Georgia,serif}
+main{max-width:760px;margin:0 auto;padding:24px 16px 60px}
+h1{font-size:28px;margin:0 0 4px}.sub{color:var(--muted);margin:0 0 20px;font:14px system-ui,sans-serif}
+.card{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:18px;margin-bottom:16px;font-family:system-ui,sans-serif}
+label{display:block;font-size:13px;color:var(--muted);margin-bottom:6px;font-weight:600}
+.row{display:flex;gap:12px;flex-wrap:wrap}.row>div{flex:1;min-width:200px}
+input[type=text],input[type=email]{width:100%;padding:10px;border:1px solid var(--line);border-radius:8px;background:var(--bg);color:var(--text);font:inherit}
+button{font:inherit;font-weight:600;border:0;border-radius:8px;padding:11px 22px;cursor:pointer;background:var(--accent);color:var(--accent-t)}
+a.link{color:var(--muted);font:14px system-ui,sans-serif;text-decoration:none}
+.q{border-top:1px solid var(--line);padding:14px 0;font-family:Georgia,serif}.q:first-child{border-top:0}
+.q h3{font-size:16px;margin:0 0 8px}
+.opt{display:flex;gap:10px;align-items:flex-start;padding:8px 12px;border:1px solid var(--line);border-radius:8px;margin:5px 0;cursor:pointer;background:var(--bg)}
+.opt input{margin-top:5px}
+.opt.right{border-color:var(--ok);background:color-mix(in srgb,var(--ok) 18%,transparent)}
+.opt.wrong{border-color:var(--bad);background:color-mix(in srgb,var(--bad) 15%,transparent)}
+.exp{font:14px system-ui,sans-serif;color:var(--muted);margin-top:6px}
+.err{color:var(--bad);font:13px system-ui,sans-serif;margin-top:8px;min-height:18px}
+.big{font-size:44px;font-weight:700;margin:4px 0}
+.hide{display:none}
+</style>
+</head>
+<body>
+<main>
+<a class="link" href="/quiz">← Back to Quiz Maker</a>
+<h1 id="title">Quiz</h1>
+<p class="sub" id="meta"></p>
+
+<form id="form" class="card" onsubmit="return false">
+  <div class="row">
+    <div><label for="name">Name</label><input type="text" id="name" required autocomplete="name"></div>
+    <div><label for="email">Email</label><input type="email" id="email" required autocomplete="email"></div>
+  </div>
+  <div id="quiz" style="margin-top:14px"></div>
+  <button id="submit" type="button">Submit</button>
+  <div class="err" id="err"></div>
+</form>
+
+<div class="card hide" id="result" style="text-align:center">
+  <div class="sub" id="who" style="margin:0"></div>
+  <div class="big" id="score"></div>
+  <div id="pct" class="sub" style="margin:0 0 12px"></div>
+  <div style="margin:0 0 16px"><button id="saveBtn">Save to Google Sheet</button><div class="sub" id="saveNote" style="margin:8px 0 0"></div></div>
+  <button onclick="location.reload()">Retake quiz</button>
+  <a class="link" href="/quiz" style="margin-left:12px">New quiz</a>
+</div>
+<div class="card hide" id="review"></div>
+</main>
+<script>
+const $=id=>document.getElementById(id);
+let quiz=null;
+try{quiz=JSON.parse(sessionStorage.getItem("quiz"))}catch(e){}
+if(!quiz||!quiz.questions){
+  document.querySelector("main").innerHTML='<p>No quiz found. <a href="/quiz">Generate one first</a>.</p>';
+}else{
+  $("title").textContent=quiz.title;
+  $("meta").textContent=quiz.questions.length+" questions · Language: "+quiz.lang;
+  quiz.questions.forEach((q,i)=>{
+    const d=document.createElement("div");d.className="q";d.id="q"+i;
+    const h=document.createElement("h3");h.textContent=`${i+1}. ${q.q}`;d.appendChild(h);
+    q.options.forEach((o,k)=>{
+      const l=document.createElement("label");l.className="opt";l.style.cssText+="color:var(--text);font-size:15px;font-weight:400;margin-bottom:5px";
+      const r=document.createElement("input");r.type="radio";r.name="q"+i;r.value=k;
+      l.appendChild(r);l.appendChild(document.createTextNode(`${"ABCD"[k]}. ${o}`));d.appendChild(l);
+    });
+    $("quiz").appendChild(d);
+  });
+
+  $("submit").onclick=()=>{
+    const name=$("name").value.trim(),email=$("email").value.trim();
+    if(!name)return $("err").textContent="Please enter your name.";
+    if(!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email))return $("err").textContent="Please enter a valid email.";
+    const picked=quiz.questions.map((_,i)=>{const c=document.querySelector(`input[name=q${i}]:checked`);return c?+c.value:null});
+    const missing=picked.filter(p=>p===null).length;
+    if(missing&&!confirm(`${missing} question(s) unanswered. Submit anyway?`))return;
+    $("err").textContent="";
+    let score=0;quiz.questions.forEach((q,i)=>{if(picked[i]===q.answer)score++});
+    const total=quiz.questions.length;
+    $("form").classList.add("hide");
+    $("who").textContent=`${name} (${email})`;
+    $("score").textContent=`${score} / ${total}`;
+    $("pct").textContent=Math.round(score/total*100)+"%";
+    $("result").classList.remove("hide");
+    $("saveBtn").onclick=async()=>{
+      const b=$("saveBtn");b.disabled=true;$("saveNote").textContent="Saving…";
+      try{
+        const j=await (await fetch("/api/submit",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({name,email,quiz,picked})})).json();
+        if(j.saved){$("saveNote").textContent="✓ Saved to Google Sheet.";b.textContent="Saved"}
+        else{$("saveNote").textContent="Not saved: "+(j.reason||"unknown error");b.disabled=false}
+      }catch(e){$("saveNote").textContent="Not saved: could not reach server.";b.disabled=false}
+    };
+
+    const rv=$("review");rv.innerHTML="<h2 style='margin:0 0 6px;font-size:18px'>Review</h2>";
+    quiz.questions.forEach((q,i)=>{
+      const d=document.createElement("div");d.className="q";
+      const h=document.createElement("h3");h.textContent=`${i+1}. ${q.q}`;d.appendChild(h);
+      q.options.forEach((o,k)=>{
+        const p=document.createElement("div");p.className="opt"+(k===q.answer?" right":(k===picked[i]?" wrong":""));
+        p.textContent=`${"ABCD"[k]}. ${o}`+(k===picked[i]?"  (your answer)":"");d.appendChild(p);
+      });
+      if(picked[i]===null){const n=document.createElement("div");n.className="exp";n.textContent="Not answered.";d.appendChild(n)}
+      if(q.explanation){const e=document.createElement("div");e.className="exp";e.textContent=q.explanation;d.appendChild(e)}
+      rv.appendChild(d);
+    });
+    rv.classList.remove("hide");window.scrollTo({top:0,behavior:"smooth"});
+  };
+}
+</script>
+</body>
+</html>

@@ -1,0 +1,116 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Admin</title>
+<style>
+:root{--bg:#faf8f5;--card:#fff;--text:#1f1d1a;--muted:#6b665e;--line:#e4dfd6;--accent:#c4562b;--accent-t:#fff;--ok:#2d7a4f;--bad:#c0392b}
+@media (prefers-color-scheme:dark){:root{--bg:#171614;--card:#222120;--text:#f1eee8;--muted:#a39d92;--line:#37352f;--accent:#e07a4f;--accent-t:#1a1a1a;--ok:#5ec28a;--bad:#e8695a}}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--text);font:16px/1.5 Georgia,serif}
+main{max-width:760px;margin:0 auto;padding:24px 16px 60px}
+h1{font-size:28px;margin:0 0 4px}h2{font-size:18px;margin:0 0 10px}
+.sub{color:var(--muted);margin:0 0 20px;font:14px system-ui,sans-serif}
+.card{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:18px;margin-bottom:16px;font-family:system-ui,sans-serif}
+label{display:block;font-size:13px;color:var(--muted);margin:12px 0 6px;font-weight:600}
+input,textarea{width:100%;padding:10px;border:1px solid var(--line);border-radius:8px;background:var(--bg);color:var(--text);font:inherit}
+textarea{min-height:110px;font:12px ui-monospace,monospace}
+button{font:inherit;font-weight:600;border:0;border-radius:8px;padding:10px 18px;cursor:pointer;background:var(--accent);color:var(--accent-t);margin-top:12px}
+button.sec{background:transparent;color:var(--text);border:1px solid var(--line);margin-left:8px}
+.msg{font-size:13px;margin-top:10px;min-height:18px;color:var(--muted)}.err{color:var(--bad)}.ok{color:var(--ok)}
+.pill{display:inline-block;padding:2px 10px;border-radius:99px;font-size:13px;font-weight:600;border:1px solid var(--line)}
+.step{display:flex;gap:8px;font-size:14px;margin:6px 0}.step b{min-width:150px}.banner{padding:10px 12px;border-radius:8px;font-weight:600;font-size:14px;margin-bottom:8px;border:1px solid}
+.banner.ok{color:var(--ok);border-color:var(--ok)}.banner.err{color:var(--bad);border-color:var(--bad)}
+.pill.on{color:var(--ok);border-color:var(--ok)}
+code{background:var(--bg);padding:2px 6px;border-radius:4px;font-size:13px;user-select:all}
+details{font-size:14px;color:var(--muted)}summary{cursor:pointer;font-weight:600;color:var(--text)}
+a{color:var(--accent)}
+</style>
+</head>
+<body>
+<main>
+<a href="/" style="font:14px system-ui,sans-serif;color:var(--muted);text-decoration:none">← Home</a>
+<h1>Admin</h1>
+<p class="sub">Connect quiz submissions to Google Sheets. &nbsp;Status: <span class="pill" id="pill">checking…</span></p>
+
+<div class="card">
+  <h2>1. Service account</h2>
+  <details style="margin-bottom:8px"><summary>How do I get this?</summary>
+    <ol>
+      <li>In <a href="https://console.cloud.google.com" target="_blank" rel="noopener">Google Cloud Console</a>, create/select a project and enable the <b>Google Sheets API</b>.</li>
+      <li>IAM &amp; Admin → Service Accounts → create one → <b>Keys → Add key → JSON</b> and download it.</li>
+      <li>Open the JSON file, copy everything and paste it below.</li>
+    </ol>
+  </details>
+  <div id="credInfo" class="msg"></div>
+  <label>Service account JSON key</label>
+  <textarea id="json" placeholder='{ "type": "service_account", "client_email": "...", "private_key": "..." }'></textarea>
+  <button id="saveCred">Save key</button>
+  <div class="msg" id="m1"></div>
+</div>
+
+<div class="card">
+  <h2>2. Google Sheet</h2>
+  <p class="sub" style="margin:0">Create a Google Sheet, click <b>Share</b>, and give <code id="email">the service account email</code> <b>Editor</b> access.</p>
+  <label>Spreadsheet URL or ID</label>
+  <input id="ss" placeholder="https://docs.google.com/spreadsheets/d/…">
+  <label>Sheet (tab) name to create</label>
+  <input id="tab" placeholder="e.g. Quiz Results">
+  <button id="connect">Connect &amp; create sheet</button><button class="sec" id="test">Test connection</button><button class="sec" id="disc">Disconnect</button>
+  <div class="msg" id="m2"></div>
+  <div id="tests" style="margin-top:6px"></div>
+</div>
+
+<div class="card">
+  <h2>What gets saved</h2>
+  <p class="sub" style="margin:0">After submitting a quiz, the participant can press <b>Save to Google Sheet</b>. One row is added to the configured tab (created if missing) with these columns: Timestamp, Name, Email, Score, Question 1, Answer 1, Question 2, Answer 2 … The tab grows automatically for longer quizzes.</p>
+</div>
+</main>
+<script>
+const $=id=>document.getElementById(id);
+const say=(id,t,c)=>{$(id).textContent=t||"";$(id).className="msg "+(c||"")};
+async function api(path,body){
+  const r=await fetch(path,body?{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify(body)}:undefined);
+  const j=await r.json();if(!r.ok)throw new Error(j.error||"Request failed");return j;
+}
+async function load(){
+  const s=await api("/api/admin/status");
+  $("pill").textContent=s.connected?"Connected":"Not connected";$("pill").className="pill"+(s.connected?" on":"");
+  if(s.clientEmail){$("email").textContent=s.clientEmail;say("credInfo","Key saved for "+s.clientEmail+". Paste a new key to replace it.","ok")}
+  if(s.spreadsheetId&&!$("ss").value)$("ss").value=s.spreadsheetId;
+  if(s.sheetName&&!$("tab").value)$("tab").value=s.sheetName;
+}
+$("saveCred").onclick=async()=>{
+  try{await api("/api/admin/credentials",{json:$("json").value});$("json").value="";say("m1","Key saved.","ok");await load();if($("ss").value.trim())runTest()}
+  catch(e){say("m1",e.message,"err")}
+};
+$("connect").onclick=async()=>{
+  say("m2","Connecting…");
+  try{const j=await api("/api/admin/connect",{spreadsheet:$("ss").value,sheetName:$("tab").value});
+    $("m2").innerHTML=`<span class="ok">${j.created?"Sheet created":"Sheet already existed; connected"} ✓</span> — <a href="${j.url}" target="_blank" rel="noopener">open spreadsheet</a>`;await load()}
+  catch(e){say("m2",e.message,"err")}
+};
+
+async function runTest(){
+  const box=$("tests");box.innerHTML="";say("m2","Testing connection…");
+  try{
+    const j=await api("/api/admin/test",{spreadsheet:$("ss").value,sheetName:$("tab").value});
+    say("m2","");
+    const b=document.createElement("div");b.className="banner "+(j.ok?"ok":"err");
+    b.textContent=j.ok?"✓ Connection successful":"✗ Connection failed";box.appendChild(b);
+    j.steps.forEach(s=>{
+      const d=document.createElement("div");d.className="step";
+      const icon=!s.ok?"✗":(s.warn?"⚠":"✓");
+      d.innerHTML=`<span class="${s.ok?(s.warn?"":"ok"):"err"}" style="min-width:18px">${icon}</span><b></b><span></span>`;
+      d.children[1].textContent=s.step;d.children[2].textContent=s.detail;d.children[2].style.color="var(--muted)";
+      box.appendChild(d);
+    });
+  }catch(e){say("m2",e.message,"err")}
+}
+$("test").onclick=runTest;
+$("disc").onclick=async()=>{await api("/api/admin/disconnect",{});say("m2","Disconnected. Submissions will no longer be saved.");await load()};
+load().catch(e=>say("credInfo",e.message,"err"));
+</script>
+</body>
+</html>

@@ -1,0 +1,186 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Quiz Maker</title>
+<style>
+:root{--bg:#faf8f5;--card:#fff;--text:#1f1d1a;--muted:#6b665e;--line:#e4dfd6;--accent:#c4562b;--accent-t:#fff;--ok:#2d7a4f}
+@media (prefers-color-scheme:dark){:root{--bg:#171614;--card:#222120;--text:#f1eee8;--muted:#a39d92;--line:#37352f;--accent:#e07a4f;--accent-t:#1a1a1a;--ok:#5ec28a}}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--text);font:16px/1.5 Georgia,serif}
+main{max-width:760px;margin:0 auto;padding:24px 16px 60px}
+h1{font-size:28px;margin:0 0 4px}.sub{color:var(--muted);margin:0 0 20px;font:14px system-ui,sans-serif}
+.card{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:18px;margin-bottom:16px;font-family:system-ui,sans-serif}
+label{display:block;font-size:13px;color:var(--muted);margin-bottom:6px;font-weight:600}
+.row{display:flex;gap:12px;flex-wrap:wrap}.row>div{flex:1;min-width:150px}
+input[type=number],select{width:100%;padding:10px;border:1px solid var(--line);border-radius:8px;background:var(--bg);color:var(--text);font:inherit}
+.drop{border:2px dashed var(--line);border-radius:10px;padding:22px;text-align:center;cursor:pointer;color:var(--muted);margin-bottom:14px}
+.drop:hover,.drop.over{border-color:var(--accent)}
+button{font:inherit;font-weight:600;border:0;border-radius:8px;padding:10px 16px;cursor:pointer;background:var(--accent);color:var(--accent-t)}
+button:disabled{opacity:.5;cursor:not-allowed}
+.status{font-size:13px;color:var(--muted);margin-top:8px;min-height:18px}.err{color:#c0392b}
+.q{border-top:1px solid var(--line);padding:14px 0;font-family:Georgia,serif}.q:first-child{border-top:0}
+.q h3{font-size:16px;margin:0 0 8px}
+.opt{display:block;width:100%;text-align:left;font-weight:400;background:var(--bg);color:var(--text);border:1px solid var(--line);margin:5px 0;padding:8px 12px}
+.opt.right{border-color:var(--ok);background:color-mix(in srgb,var(--ok) 18%,transparent)}
+.opt.wrong{border-color:#c0392b;background:color-mix(in srgb,#c0392b 15%,transparent)}
+.exp{font-size:14px;color:var(--muted);margin-top:6px;font-family:system-ui,sans-serif}
+.actions{display:flex;gap:10px;flex-wrap:wrap;margin-top:10px;align-items:center}
+.hide{display:none}.score{font-weight:700}
+.ghost{background:transparent;color:var(--text);border:1px solid var(--line)}
+.modal{position:fixed;inset:0;background:rgba(0,0,0,.55);display:flex;align-items:center;justify-content:center;padding:16px;z-index:50}
+.modal.hide{display:none}
+.dlg{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:20px;width:100%;max-width:560px;max-height:92vh;overflow:auto;font-family:system-ui,sans-serif}
+.dlg h2{margin:0 0 14px;font-size:20px}
+.dlg textarea,.dlg input[type=text]{width:100%;padding:10px;border:1px solid var(--line);border-radius:8px;background:var(--bg);color:var(--text);font:inherit}
+.dlg textarea{min-height:70px;resize:vertical}
+.orow{display:flex;gap:8px;align-items:center;margin:6px 0}
+.orow b{width:20px;color:var(--muted)}.orow input[type=radio]{accent-color:var(--accent);width:18px;height:18px;flex:none}
+.orow .x{padding:6px 10px;background:transparent;color:var(--muted);border:1px solid var(--line)}
+.qh{display:flex;justify-content:space-between;align-items:flex-start;gap:10px}.qh h3{margin:0 0 8px}
+.rm{flex:none;padding:4px 10px;font-size:13px;background:transparent;color:#c0392b;border:1px solid var(--line)}.rm:hover{border-color:#c0392b}
+.hint{font-size:12px;color:var(--muted);margin:2px 0 10px}
+</style>
+</head>
+<body>
+<main>
+<a href="/" style="font:14px system-ui,sans-serif;color:var(--muted);text-decoration:none">← Home</a>
+<h1>Quiz Maker</h1>
+<p class="sub">Upload a PDF, Word document or audio file. Powered by Google Gemini.</p>
+<div class="card">
+  <div class="drop" id="drop">Click or drop a <b>PDF</b>, <b>DOCX</b> or <b>audio</b> file<br><span id="fname" style="font-size:13px"></span></div>
+  <input type="file" id="file" class="hide" accept=".pdf,.docx,.mp3,.wav,.m4a,.aac,.ogg,.flac,.aiff,audio/*">
+  <div class="row">
+    <div><label>Number of questions</label><input type="number" id="n" min="1" max="50" value="10"></div>
+    <div><label>Language</label><select id="lang"><option>English</option><option>Roman Urdu</option></select></div>
+  </div>
+  <div class="actions"><button id="go">Generate quiz</button></div>
+  <div class="status" id="st"></div>
+</div>
+<div class="card hide" id="qc">
+  <div style="display:flex;justify-content:space-between;flex-wrap:wrap;gap:8px"><h2 id="qt" style="margin:0;font-size:20px"></h2><span class="score" id="score"></span></div>
+  <div class="actions" style="margin:12px 0 4px">
+    <button id="start" style="font-size:17px;padding:12px 26px">Start Quiz</button>
+    <button id="addq" class="ghost">+ Add Questions</button>
+    <button id="dpdf" style="background:transparent;color:var(--text);border:1px solid var(--line)">Download PDF</button><button id="ddocx" style="background:transparent;color:var(--text);border:1px solid var(--line)">Download DOCX</button>
+    <label style="display:flex;align-items:center;gap:6px;margin:0"><input type="checkbox" id="key" checked> include answer key</label>
+  </div>
+  <div id="quiz"></div>
+</div>
+</main>
+<div class="modal hide" id="qm" role="dialog" aria-modal="true" aria-labelledby="qmt">
+  <div class="dlg">
+    <h2 id="qmt">Add a question</h2>
+    <div style="margin-bottom:12px"><label for="nq">Question</label><textarea id="nq" placeholder="Type your question…"></textarea></div>
+    <label>Options <span style="font-weight:400">— select the radio button next to the correct answer</span></label>
+    <div id="opts"></div>
+    <div class="actions" style="margin-top:6px"><button type="button" id="addopt" class="ghost" style="padding:6px 12px;font-size:14px">+ Add option</button></div>
+    <div style="margin:14px 0 0"><label for="nex">Explanation <span style="font-weight:400">(optional)</span></label><input type="text" id="nex" placeholder="Why is this the correct answer?"></div>
+    <div class="status err" id="qerr"></div>
+    <div class="actions" style="justify-content:flex-end;margin-top:12px">
+      <button type="button" id="qcancel" class="ghost">Cancel</button>
+      <button type="button" id="qsaveadd" class="ghost">Save &amp; add another</button>
+      <button type="button" id="qsave">Save</button>
+    </div>
+  </div>
+</div>
+<script>
+const $=id=>document.getElementById(id);let file=null,quiz=null;
+const st=(m,e)=>{$("st").textContent=m||"";$("st").className="status"+(e?" err":"")};
+const pick=f=>{if(!f)return;file=f;$("fname").textContent=f.name};
+$("drop").onclick=()=>$("file").click();
+$("file").onchange=e=>pick(e.target.files[0]);
+$("drop").ondragover=e=>{e.preventDefault();$("drop").classList.add("over")};
+$("drop").ondragleave=()=>$("drop").classList.remove("over");
+$("drop").ondrop=e=>{e.preventDefault();$("drop").classList.remove("over");pick(e.dataTransfer.files[0])};
+
+$("go").onclick=async()=>{
+  if(!file)return st("Choose a file first.",true);
+  const fd=new FormData();fd.append("file",file);fd.append("n",$("n").value);fd.append("lang",$("lang").value);
+  $("go").disabled=true;st("Generating — audio and long files can take a minute…");$("qc").classList.add("hide");
+  try{
+    const r=await fetch("/api/generate",{method:"POST",body:fd});const j=await r.json();
+    if(!r.ok)throw new Error(j.error);quiz=j;render();st("");
+  }catch(e){st(e.message,true)}
+  $("go").disabled=false;
+};
+
+function render(scroll=true){
+  $("qc").classList.remove("hide");$("qt").textContent=quiz.title;$("score").textContent=quiz.questions.length+(quiz.questions.length===1?" question":" questions");$("quiz").innerHTML="";
+  quiz.questions.forEach((q,i)=>{
+    const div=document.createElement("div");div.className="q";
+    const hd=document.createElement("div");hd.className="qh";
+    const h=document.createElement("h3");h.textContent=`${i+1}. ${q.q}`;hd.appendChild(h);
+    const rm=document.createElement("button");rm.type="button";rm.className="rm";rm.textContent="Remove";rm.title="Remove this question";
+    rm.onclick=()=>removeQuestion(i);hd.appendChild(rm);div.appendChild(hd);
+    q.options.forEach((o,k)=>{const p=document.createElement("div");p.style.cssText="margin:3px 0 3px 14px;font-size:15px";p.textContent=`${"ABCD"[k]}. ${o}`;div.appendChild(p)});
+    $("quiz").appendChild(div);
+  });
+  $("start").disabled=$("dpdf").disabled=$("ddocx").disabled=!quiz.questions.length;
+  if(!quiz.questions.length){const e=document.createElement("p");e.className="exp";e.textContent="No questions left. Use “+ Add Questions” to add some.";$("quiz").appendChild(e)}
+  if(scroll)$("qc").scrollIntoView({behavior:"smooth"});
+}
+$("start").onclick=()=>{sessionStorage.setItem("quiz",JSON.stringify(quiz));location.href="/take"};
+
+async function dl(fmt){
+  try{
+    const r=await fetch("/api/export/"+fmt,{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({quiz,includeKey:$("key").checked})});
+    if(!r.ok)throw new Error("Export failed");
+    const a=document.createElement("a");a.href=URL.createObjectURL(await r.blob());
+    a.download=(quiz.title||"quiz").replace(/[^\w\- ]+/g,"").trim().replace(/\s+/g,"_")+"."+fmt;a.click();
+  }catch(e){st(e.message,true)}
+}
+$("dpdf").onclick=()=>dl("pdf");$("ddocx").onclick=()=>dl("docx");
+
+// ---------- Remove question ----------
+function removeQuestion(i){
+  if(!confirm(`Remove question ${i+1}?\n\n${quiz.questions[i].q}`))return;
+  quiz.questions.splice(i,1);render(false);
+}
+// ---------- Add Questions ----------
+const MIN_OPT=2,MAX_OPT=4;
+function optRow(i,val=""){
+  const r=document.createElement("div");r.className="orow";
+  r.innerHTML=`<input type="radio" name="correct" title="Mark as correct answer"><b></b><input type="text" placeholder="Option text"><button type="button" class="x" title="Remove option">✕</button>`;
+  r.querySelector('input[type=text]').value=val;
+  r.querySelector(".x").onclick=()=>{if($("opts").children.length>MIN_OPT){r.remove();relabel()}};
+  return r;
+}
+function relabel(){
+  [...$("opts").children].forEach((r,k)=>{r.querySelector("b").textContent="ABCD"[k];r.querySelector(".x").classList.toggle("hide",$("opts").children.length<=MIN_OPT)});
+  $("addopt").classList.toggle("hide",$("opts").children.length>=MAX_OPT);
+}
+function resetForm(){
+  $("nq").value="";$("nex").value="";$("qerr").textContent="";$("opts").innerHTML="";
+  for(let i=0;i<4;i++)$("opts").appendChild(optRow(i));
+  relabel();
+}
+function openForm(){resetForm();$("qm").classList.remove("hide");$("nq").focus()}
+function closeForm(){$("qm").classList.add("hide")}
+$("addq").onclick=openForm;
+$("qcancel").onclick=closeForm;
+$("qm").onclick=e=>{if(e.target===$("qm"))closeForm()};
+document.addEventListener("keydown",e=>{if(e.key==="Escape"&&!$("qm").classList.contains("hide"))closeForm()});
+$("addopt").onclick=()=>{if($("opts").children.length<MAX_OPT){$("opts").appendChild(optRow());relabel()}};
+
+function saveQuestion(another){
+  const err=m=>{$("qerr").textContent=m;return false};
+  const q=$("nq").value.trim();
+  if(!q)return err("Please enter the question.");
+  const rows=[...$("opts").children];
+  const options=rows.map(r=>r.querySelector('input[type=text]').value.trim());
+  if(options.some(o=>!o))return err("Fill in every option, or remove the empty ones.");
+  if(new Set(options.map(o=>o.toLowerCase())).size<options.length)return err("Options must be different from each other.");
+  const answer=rows.findIndex(r=>r.querySelector('input[type=radio]').checked);
+  if(answer<0)return err("Select the correct answer.");
+  quiz.questions.push({q,options,answer,explanation:$("nex").value.trim()});
+  render(false);
+  if(another){resetForm();$("nq").focus();$("qerr").textContent="";$("qerr").style.color="var(--ok)";$("qerr").textContent="Question added ✓";setTimeout(()=>{$("qerr").style.color="";if($("qerr").textContent==="Question added ✓")$("qerr").textContent=""},2000)}
+  else{closeForm();$("quiz").lastElementChild?.scrollIntoView({behavior:"smooth",block:"center"})}
+}
+$("qsave").onclick=()=>saveQuestion(false);
+$("qsaveadd").onclick=()=>saveQuestion(true);
+</script>
+</body>
+</html>
