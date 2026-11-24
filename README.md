@@ -1,6 +1,13 @@
 # Quiz Generator (Gemini)
 
-Upload a PDF, DOCX or audio file → get a multiple-choice quiz in English or Roman Urdu → download as PDF or DOCX.
+> **Beta:** this app is for beta testing only. Features may change and some things may not work as expected.
+
+Upload a PDF, DOCX or audio file → get a quiz in English or Roman Urdu → download as PDF or DOCX.
+
+**Question types** (pick one under "Question type" before generating, and per question when using "+ Add Questions"):
+- **MCQ – single select**: 4 options, one correct answer (radio buttons).
+- **MCQ – multi select**: 4 options, 2–3 correct answers (checkboxes, "select all that apply"). A question counts as correct only if *exactly* the right set of options is chosen.
+- **True / False**: a statement with True/False (Sahi/Ghalat in Roman Urdu).
 
 ## Setup
 1. Install Node.js 18+ (https://nodejs.org)

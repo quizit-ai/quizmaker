@@ -39,6 +39,35 @@ app.use(express.static(path.join(__dirname, "public"), { extensions: ["html"], s
 
 const AUDIO = { mp3: "audio/mp3", wav: "audio/wav", m4a: "audio/aac", aac: "audio/aac", ogg: "audio/ogg", flac: "audio/flac", aiff: "audio/aiff", webm: "audio/ogg" };
 
+// ---------- Question types ----------
+// single = MCQ with one correct answer, multi = MCQ with several correct answers, tf = True/False
+const TYPES = ["single", "multi", "tf"];
+const TF_LABELS = { English: ["True", "False"], "Roman Urdu": ["Sahi", "Ghalat"] };
+const qType = q => (TYPES.includes(q?.type) ? q.type : "single");
+const correctOf = q => (Array.isArray(q.answers) ? q.answers : [q.answer]).filter(Number.isInteger).sort((a, b) => a - b);
+const asArr = p => (p == null ? [] : Array.isArray(p) ? p : [p]);
+const isRight = (q, p) => {
+  const c = correctOf(q), a = [...new Set(asArr(p))].sort((x, y) => x - y);
+  return a.length === c.length && a.every((v, i) => v === c[i]);
+};
+function typeRule(type, lang) {
+  const [t, f] = TF_LABELS[lang];
+  if (type === "multi") return `Each question is a MULTI-SELECT multiple-choice question ("select all that apply") with exactly 4 options. Between 2 and 3 options are correct (vary this), and at least one is wrong. "answers" is the array of 0-based indices of ALL correct options.`;
+  if (type === "tf") return `Each item is a TRUE/FALSE statement. "q" is a clear statement (not a question) that is either true or false according to the material; make roughly half of them true and half false. "options" must be exactly ["${t}", "${f}"]. "answers" is [0] if the statement is true or [1] if it is false.`;
+  return `Each question is a SINGLE-SELECT multiple-choice question with exactly 4 options and exactly one correct answer. "answers" is an array holding the single 0-based index of the correct option.`;
+}
+function normalize(q, type, lang) {
+  if (!q || typeof q.q !== "string" || !q.q.trim()) return null;
+  let options = Array.isArray(q.options) ? q.options.map(String) : [];
+  let answers = [...new Set((Array.isArray(q.answers) ? q.answers : [q.answer]).filter(Number.isInteger))].sort((a, b) => a - b);
+  if (type === "tf") { options = TF_LABELS[lang]; answers = answers.slice(0, 1); }
+  else if (options.length < 2) return null;
+  answers = answers.filter(k => k >= 0 && k < options.length);
+  if (type !== "multi") answers = answers.slice(0, 1);
+  if (!answers.length) return null;
+  return { q: q.q, type, options, answer: answers[0], answers, explanation: q.explanation || "" };
+}
+
 const schema = {
   type: Type.OBJECT,
   properties: {
@@ -50,10 +79,10 @@ const schema = {
         properties: {
           q: { type: Type.STRING },
           options: { type: Type.ARRAY, items: { type: Type.STRING } },
-          answer: { type: Type.INTEGER },
+          answers: { type: Type.ARRAY, items: { type: Type.INTEGER } },
           explanation: { type: Type.STRING },
         },
-        required: ["q", "options", "answer", "explanation"],
+        required: ["q", "options", "answers", "explanation"],
       },
     },
   },
@@ -64,6 +93,7 @@ app.post("/api/generate", upload.single("file"), async (req, res) => {
   try {
     const n = Math.max(1, Math.min(50, parseInt(req.body.n) || 10));
     const lang = req.body.lang === "Roman Urdu" ? "Roman Urdu" : "English";
+    const type = TYPES.includes(req.body.type) ? req.body.type : "single";
     const f = req.file;
     if (!f) return res.status(400).json({ error: "No file uploaded." });
 
@@ -84,9 +114,10 @@ app.post("/api/generate", upload.single("file"), async (req, res) => {
     const langRule = lang === "Roman Urdu"
       ? 'Write everything in Roman Urdu (Urdu written in the Latin alphabet, e.g. "Pakistan ka darulhukumat kaun sa hai?"). Use Latin characters only.'
       : "Write everything in English.";
-    parts.push({ text: `Create a multiple-choice quiz based only on the provided material (document, PDF or audio recording).
-Exactly ${n} questions. Each has exactly 4 options and one correct answer. ${langRule}
-"answer" is the 0-based index of the correct option. "explanation" is one short sentence. Vary difficulty and avoid trivial questions.` });
+    const what = type === "tf" ? "true/false quiz" : type === "multi" ? "multiple-choice quiz with multiple correct answers per question" : "multiple-choice quiz";
+    parts.push({ text: `Create a ${what} based only on the provided material (document, PDF or audio recording).
+Exactly ${n} questions. ${typeRule(type, lang)} ${langRule}
+"explanation" is one short sentence. Vary difficulty and avoid trivial questions.` });
 
     const r = await ai.models.generateContent({
       model: MODEL,
@@ -94,8 +125,9 @@ Exactly ${n} questions. Each has exactly 4 options and one correct answer. ${lan
       config: { responseMimeType: "application/json", responseSchema: schema, temperature: 0.4 },
     });
     const quiz = JSON.parse(r.text);
-    quiz.questions = quiz.questions.slice(0, n).filter(q => q.options?.length >= 2);
+    quiz.questions = quiz.questions.map(q => normalize(q, type, lang)).filter(Boolean).slice(0, n);
     quiz.lang = lang;
+    quiz.type = type;
     res.json(quiz);
   } catch (e) {
     console.error(e);
@@ -103,8 +135,8 @@ Exactly ${n} questions. Each has exactly 4 options and one correct answer. ${lan
   }
 });
 
-const L = "ABCD";
-const keyLine = (q, i) => `${i + 1}. ${L[q.answer] ?? "?"}${q.explanation ? " — " + q.explanation : ""}`;
+const L = "ABCDEF";
+const keyLine = (q, i) => `${i + 1}. ${correctOf(q).map(k => L[k] ?? "?").join(", ") || "?"}${q.explanation ? " — " + q.explanation : ""}`;
 const fname = t => (t || "quiz").replace(/[^\w\- ]+/g, "").trim().replace(/\s+/g, "_") || "quiz";
 
 app.post("/api/export/pdf", (req, res) => {
@@ -117,6 +149,7 @@ app.post("/api/export/pdf", (req, res) => {
   doc.font("Helvetica").fontSize(10).text(`Language: ${quiz.lang}   |   Name: ____________________   Date: ____________`).moveDown(1);
   quiz.questions.forEach((q, i) => {
     doc.font("Helvetica-Bold").fontSize(12).text(`${i + 1}. ${q.q}`).moveDown(0.2);
+    if (qType(q) === "multi") doc.font("Helvetica-Oblique").fontSize(10).text("(Select all that apply)", { indent: 18 }).moveDown(0.1);
     doc.font("Helvetica").fontSize(11);
     q.options.forEach((o, k) => doc.text(`${L[k]}. ${o}`, { indent: 18 }));
     doc.moveDown(0.8);
@@ -141,6 +174,7 @@ app.post("/api/export/docx", async (req, res) => {
   ];
   quiz.questions.forEach((q, i) => {
     ch.push(P(`${i + 1}. ${q.q}`, { bold: true, after: 60 }));
+    if (qType(q) === "multi") ch.push(P("(Select all that apply)", { size: 20, indent: 360, after: 40 }));
     q.options.forEach((o, k) => ch.push(P(`${L[k]}. ${o}`, { indent: 360, after: 40 })));
     ch.push(P("", { after: 120 }));
   });
@@ -282,12 +316,12 @@ app.post("/api/submit", async (req, res) => {
     const { name, email, quiz, picked } = req.body;
     if (!name || !email || !Array.isArray(quiz?.questions) || !Array.isArray(picked)) return res.status(400).json({ saved: false, reason: "Bad submission." });
     const total = quiz.questions.length;
-    const score = quiz.questions.reduce((n, q, i) => n + (picked[i] === q.answer ? 1 : 0), 0);
+    const score = quiz.questions.reduce((n, q, i) => n + (isRight(q, picked[i]) ? 1 : 0), 0);
     const clip = v => String(v ?? "").slice(0, 2000);
     const row = [new Date().toISOString(), clip(name), clip(email), `${score}/${total}`];
     quiz.questions.forEach((q, i) => {
-      const p = picked[i];
-      row.push(clip(q.q), p == null ? "(not answered)" : clip(`${L[p]}. ${q.options[p]}`));
+      const p = asArr(picked[i]).filter(k => Number.isInteger(k) && q.options?.[k] != null);
+      row.push(clip(q.q), p.length ? clip(p.map(k => `${L[k]}. ${q.options[k]}`).join("; ")) : "(not answered)");
     });
     const sheets = sheetsClient();
     await ensureSheet(sheets, cfg.spreadsheetId, cfg.sheetName, total);

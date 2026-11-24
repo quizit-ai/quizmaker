@@ -24,12 +24,17 @@ a.link{color:var(--muted);font:14px system-ui,sans-serif;text-decoration:none}
 .opt.right{border-color:var(--ok);background:color-mix(in srgb,var(--ok) 18%,transparent)}
 .opt.wrong{border-color:var(--bad);background:color-mix(in srgb,var(--bad) 15%,transparent)}
 .exp{font:14px system-ui,sans-serif;color:var(--muted);margin-top:6px}
+.tip{font:italic 13px system-ui,sans-serif;color:var(--muted);margin:-4px 0 8px}
 .err{color:var(--bad);font:13px system-ui,sans-serif;margin-top:8px;min-height:18px}
 .big{font-size:44px;font-weight:700;margin:4px 0}
 .hide{display:none}
+.beta{position:fixed;top:0;left:0;right:0;z-index:100;background:#f5c542;color:#2b2200;text-align:center;font:600 13px/1.3 system-ui,sans-serif;padding:8px 12px;box-shadow:0 1px 4px rgba(0,0,0,.2)}
+.beta b{background:#2b2200;color:#f5c542;border-radius:4px;padding:1px 6px;margin-right:6px;letter-spacing:.5px}
+html body{padding-top:34px}
 </style>
 </head>
 <body>
+<div class="beta" role="note"><b>BETA</b>This app is for beta testing only. Features may change and some things may not work as expected.</div>
 <main>
 <a class="link" href="/quiz">← Back to Quiz Maker</a>
 <h1 id="title">Quiz</h1>
@@ -58,19 +63,27 @@ a.link{color:var(--muted);font:14px system-ui,sans-serif;text-decoration:none}
 <script>
 const $=id=>document.getElementById(id);
 let quiz=null;
+const TYPES={single:"MCQ (single select)",multi:"MCQ (multi select)",tf:"True / False"};
+const qType=q=>TYPES[q&&q.type]?q.type:"single";
+const asArr=p=>p==null?[]:Array.isArray(p)?p:[p];
+const correctOf=q=>(Array.isArray(q.answers)?q.answers:[q.answer]).filter(Number.isInteger).sort((a,b)=>a-b);
+const isRight=(q,p)=>{const c=correctOf(q),a=[...new Set(asArr(p))].sort((x,y)=>x-y);return a.length===c.length&&a.every((v,i)=>v===c[i])};
 try{quiz=JSON.parse(sessionStorage.getItem("quiz"))}catch(e){}
 if(!quiz||!quiz.questions){
   document.querySelector("main").innerHTML='<p>No quiz found. <a href="/quiz">Generate one first</a>.</p>';
 }else{
   $("title").textContent=quiz.title;
-  $("meta").textContent=quiz.questions.length+" questions · Language: "+quiz.lang;
+  const kinds=[...new Set(quiz.questions.map(qType))];
+  $("meta").textContent=quiz.questions.length+" questions · "+(kinds.length===1?TYPES[kinds[0]]:"Mixed types")+" · Language: "+quiz.lang;
   quiz.questions.forEach((q,i)=>{
     const d=document.createElement("div");d.className="q";d.id="q"+i;
     const h=document.createElement("h3");h.textContent=`${i+1}. ${q.q}`;d.appendChild(h);
+    const multi=qType(q)==="multi";
+    if(multi){const t=document.createElement("div");t.className="tip";t.textContent="Select all that apply";d.appendChild(t)}
     q.options.forEach((o,k)=>{
       const l=document.createElement("label");l.className="opt";l.style.cssText+="color:var(--text);font-size:15px;font-weight:400;margin-bottom:5px";
-      const r=document.createElement("input");r.type="radio";r.name="q"+i;r.value=k;
-      l.appendChild(r);l.appendChild(document.createTextNode(`${"ABCD"[k]}. ${o}`));d.appendChild(l);
+      const r=document.createElement("input");r.type=multi?"checkbox":"radio";r.name="q"+i;r.value=k;
+      l.appendChild(r);l.appendChild(document.createTextNode(`${"ABCDEF"[k]}. ${o}`));d.appendChild(l);
     });
     $("quiz").appendChild(d);
   });
@@ -79,11 +92,15 @@ if(!quiz||!quiz.questions){
     const name=$("name").value.trim(),email=$("email").value.trim();
     if(!name)return $("err").textContent="Please enter your name.";
     if(!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email))return $("err").textContent="Please enter a valid email.";
-    const picked=quiz.questions.map((_,i)=>{const c=document.querySelector(`input[name=q${i}]:checked`);return c?+c.value:null});
+    // single/true-false -> index, multi -> array of indices, unanswered -> null
+    const picked=quiz.questions.map((q,i)=>{
+      const c=[...document.querySelectorAll(`input[name=q${i}]:checked`)].map(x=>+x.value);
+      return !c.length?null:qType(q)==="multi"?c:c[0];
+    });
     const missing=picked.filter(p=>p===null).length;
     if(missing&&!confirm(`${missing} question(s) unanswered. Submit anyway?`))return;
     $("err").textContent="";
-    let score=0;quiz.questions.forEach((q,i)=>{if(picked[i]===q.answer)score++});
+    let score=0;quiz.questions.forEach((q,i)=>{if(isRight(q,picked[i]))score++});
     const total=quiz.questions.length;
     $("form").classList.add("hide");
     $("who").textContent=`${name} (${email})`;
@@ -103,9 +120,11 @@ if(!quiz||!quiz.questions){
     quiz.questions.forEach((q,i)=>{
       const d=document.createElement("div");d.className="q";
       const h=document.createElement("h3");h.textContent=`${i+1}. ${q.q}`;d.appendChild(h);
+      const good=correctOf(q),mine=asArr(picked[i]);
+      if(qType(q)==="multi"){const t=document.createElement("div");t.className="tip";t.textContent="Select all that apply — all correct options must be chosen, and no others.";d.appendChild(t)}
       q.options.forEach((o,k)=>{
-        const p=document.createElement("div");p.className="opt"+(k===q.answer?" right":(k===picked[i]?" wrong":""));
-        p.textContent=`${"ABCD"[k]}. ${o}`+(k===picked[i]?"  (your answer)":"");d.appendChild(p);
+        const p=document.createElement("div");p.className="opt"+(good.includes(k)?" right":(mine.includes(k)?" wrong":""));
+        p.textContent=`${"ABCDEF"[k]}. ${o}`+(mine.includes(k)?"  (your answer)":"");d.appendChild(p);
       });
       if(picked[i]===null){const n=document.createElement("div");n.className="exp";n.textContent="Not answered.";d.appendChild(n)}
       if(q.explanation){const e=document.createElement("div");e.className="exp";e.textContent=q.explanation;d.appendChild(e)}
